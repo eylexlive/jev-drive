@@ -77,6 +77,9 @@ def cmd_eval(args) -> int:
         print(f"unknown arms {unknown}; choose from {', '.join(ARMS)}", file=sys.stderr)
         return 2
     scenes = standard_set(seed=args.seed)
+    if args.limit:
+        step = max(1, len(scenes) // args.limit)
+        scenes = scenes[::step][:args.limit]
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     arms, jev = [], None
@@ -161,6 +164,7 @@ def main(argv: list[str] | None = None) -> int:
                    help=f"comma-separated, from: {', '.join(ARMS)}")
     p.add_argument("--provider", choices=("openrouter", "typesafe"), default="openrouter")
     p.add_argument("--seed", type=int, default=7)
+    p.add_argument("--limit", type=int, help="an evenly spread subset of N scenes, for a quick pilot")
     p.add_argument("--budget", type=float, default=4.0, help="stop spending after this many US dollars")
     p.add_argument("--workers", type=int, default=8)
     p.add_argument("--port", type=int, default=8766)
