@@ -1,0 +1,17 @@
+Jev Drive includes third-party material under its own license.
+
+frontend/public/models/chassis-draco.glb
+frontend/public/models/wheel-draco.glb
+  "Classic Muscle car" by Alexus16 (https://sketchfab.com/Alexus16), licensed under Creative
+  Commons Attribution 4.0 (https://creativecommons.org/licenses/by/4.0/).
+  Source: https://sketchfab.com/3d-models/classic-muscle-car-641efc889e5f4543bae51d0922e6f4b3
+  The Draco-compressed files are taken from pmndrs/racing-game (https://github.com/pmndrs/racing-game),
+  MIT License, Copyright 2021 pmndrs and contributors.
+  The same files are copied into src/jev_drive/web/dist/models by the frontend build.
+
+frontend/src/components/ui/
+  Components generated with shadcn/ui (https://ui.shadcn.com), MIT License.
+
+Geist font
+  By Vercel, SIL Open Font License 1.1, installed from npm (@fontsource-variable/geist)
+  and bundled into src/jev_drive/web/dist by the frontend build.

@@ -1,0 +1,123 @@
+{
+ "_note": "Written by a separate model that never saw PHRASES in world.py; used only for evaluation, never shown to the rule baselines' authors.",
+ "van": [
+  "a van parked across your lane with its hazard lights blinking",
+  "a stalled truck blocking the road ahead with no driver in sight",
+  "a delivery vehicle stopped dead in your lane, flashers on",
+  "an abandoned-looking car sitting sideways in your lane",
+  "a lorry stopped in your lane with its warning lights flashing",
+  "a car halted in your lane, engine idling, nobody near it"
+ ],
+ "boxes": [
+  "several cardboard boxes scattered across your lane",
+  "loose crates lying in the road ahead of you",
+  "debris strewn across your lane",
+  "a pile of packages spilled onto the roadway in your lane",
+  "wooden pallets lying broken across your lane",
+  "assorted cargo scattered across the pavement in your lane"
+ ],
+ "cones": [
+  "orange cones blocking your lane for road works",
+  "a line of traffic barriers closing off your lane",
+  "your lane cordoned off with cones around a pothole",
+  "plastic bollards sealing off your lane ahead",
+  "construction barriers narrowing the road and blocking your lane",
+  "your lane shut off with warning cones around a road crew"
+ ],
+ "branch": [
+  "a large branch lying across your lane",
+  "a fallen tree limb blocking part of the road",
+  "broken tree branches scattered across your lane",
+  "a thick bough down across the roadway ahead",
+  "part of an uprooted tree resting in your lane",
+  "splintered branches lying across the pavement in your lane"
+ ],
+ "ped_curb": [
+  "a man standing at the curb watching the oncoming traffic",
+  "a woman at the edge of the sidewalk looking toward your car",
+  "a pedestrian standing right at the curb, eyes on the road",
+  "an elderly person poised at the curb watching for a gap in traffic",
+  "a teenager standing at the sidewalk's edge looking both ways",
+  "someone stopped at the curb, gaze fixed on the approaching cars"
+ ],
+ "ped_phone": [
+  "a woman standing near the curb staring down at her phone",
+  "a man on the sidewalk absorbed in his screen",
+  "a teenager waiting at the curb with headphones in, not looking up",
+  "someone standing close to the curb reading a book",
+  "a pedestrian near the curb scrolling their phone, unaware of traffic",
+  "an elderly man standing by the curb looking down at a device"
+ ],
+ "ped_crossing": [
+  "a pedestrian walking across the road directly ahead of you",
+  "a man crossing the street in front of your car",
+  "a woman midway across the road, walking toward the far side",
+  "a child walking across the roadway right in your path",
+  "someone on foot crossing the lane ahead",
+  "a jogger crossing the road in front of your vehicle"
+ ],
+ "ped_parallel": [
+  "a jogger running along the sidewalk parallel to the road",
+  "a man walking along the far sidewalk in the same direction as traffic",
+  "a woman strolling along the near sidewalk beside the road",
+  "someone jogging along the pavement, keeping pace with your car",
+  "a teenager walking briskly along the sidewalk parallel to the lane",
+  "a person walking a dog along the sidewalk, moving parallel to the road"
+ ],
+ "deer": [
+  "a deer standing motionless in your lane, staring at your car",
+  "a buck frozen in the middle of your lane, facing you",
+  "a doe standing still in the road, eyes fixed on your headlights",
+  "a deer planted in your lane, looking straight at the car",
+  "a stag standing stock-still in your lane, head turned toward you",
+  "a deer halted in the road ahead, gazing directly at your vehicle"
+ ],
+ "deer_leaving": [
+  "a deer walking off the road toward the shoulder",
+  "a doe stepping away from the lane toward the roadside brush",
+  "a buck moving off the pavement toward the treeline",
+  "a deer ambling off the road onto the verge",
+  "a stag walking away from your lane toward the roadside grass",
+  "a deer trotting off the roadway toward the ditch"
+ ],
+ "dog_waiting": [
+  "a dog with no leash standing on the far sidewalk",
+  "a stray-looking dog sitting on the opposite sidewalk",
+  "an unleashed dog on the far side of the road, no owner in sight",
+  "a dog alone on the far pavement, no leash or handler visible",
+  "a loose dog standing on the sidewalk across the street",
+  "a dog without a collar visible, waiting on the far sidewalk"
+ ],
+ "dog_running": [
+  "a dog running across the road ahead of you",
+  "a small dog dashing across the street in front of your car",
+  "a large dog sprinting across the lane",
+  "a dog bolting across the roadway",
+  "a puppy scampering across the road ahead",
+  "a dog racing across the pavement in front of your vehicle"
+ ],
+ "boxes_sudden": [
+  "crates just tumbling off the truck ahead into your lane",
+  "boxes suddenly spilling off the back of the lorry ahead",
+  "cargo falling from the vehicle in front, landing in your lane",
+  "pallets dropping off the truck ahead directly into your path",
+  "a load slipping off the back of the van ahead and scattering across the lane",
+  "packages tumbling from the truck in front onto the road"
+ ],
+ "ped_sudden": [
+  "a child darting into the road from between parked cars",
+  "a man stepping out suddenly from behind a parked van",
+  "a woman emerging abruptly into the street from behind a parked car",
+  "a teenager appearing suddenly from behind a parked truck into your lane",
+  "someone popping out from between parked vehicles onto the road",
+  "a child bursting into view from behind a parked car ahead"
+ ],
+ "deer_sudden": [
+  "a deer leaping onto the road right in front of your car",
+  "a buck bounding out of the trees directly into your path",
+  "a doe springing onto the pavement just ahead of you",
+  "a deer vaulting over the guardrail straight into your lane",
+  "a stag jumping onto the road inches from your bumper",
+  "a deer landing in the middle of your lane after leaping from the roadside"
+ ]
+}

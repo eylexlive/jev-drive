@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>jev-drive</title>
+<style>
+:root{--bg:#0e1116;--panel:#161a21;--line:#262c36;--fg:#e8ebf0;--muted:#8a93a2;--accent:#6cc4ff;--ok:#5fd18b;--warn:#ffb454;--bad:#ff6b6b}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.45 ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif}
+header{display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:10px 16px;border-bottom:1px solid var(--line)}
+header h1{font-size:16px;margin:0 12px 0 0;font-weight:650;letter-spacing:.2px}
+header .sub{color:var(--muted);font-size:12px;margin-right:auto}
+button,select{font:inherit;background:var(--panel);color:var(--fg);border:1px solid var(--line);border-radius:7px;padding:6px 12px;cursor:pointer}
+button:hover,select:hover{border-color:#3a4351}
+button.on{border-color:var(--ok);color:var(--ok)}
+main{padding:12px 16px 24px;max-width:1500px;margin:0 auto}
+#road{width:100%;display:block;border-radius:10px;background:#1b2a1b}
+.grid{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr) minmax(0,1fr);gap:12px;margin-top:12px}
+@media (max-width:1000px){.grid{grid-template-columns:1fr}}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px;min-width:0}
+.card h2{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:0 0 10px;font-weight:600}
+.decision{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+.chip{font-size:30px;font-weight:750;letter-spacing:.5px}
+.who{color:var(--muted)}
+.bars{margin-top:10px}
+.bar{display:grid;grid-template-columns:78px 1fr 44px;gap:8px;align-items:center;margin:5px 0}
+.bar .track{height:12px;background:#222834;border-radius:6px;overflow:hidden}
+.bar .fill{height:100%;background:var(--accent);border-radius:6px;transition:width .15s}
+.bar.top .fill{background:var(--ok)}
+.meta{display:flex;flex-wrap:wrap;gap:6px 16px;margin-top:10px;color:var(--muted);font-size:13px}
+.meta b{color:var(--fg);font-weight:600}
+pre{margin:0;white-space:pre-wrap;word-break:break-word;font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color:#c9d1dc;max-height:330px;overflow:auto}
+.events{list-style:none;margin:0;padding:0;font-size:13px;max-height:330px;overflow:auto}
+.events li{padding:4px 0;border-bottom:1px solid #1f242d;display:grid;grid-template-columns:50px 1fr;gap:8px}
+.events .t{color:var(--muted);font-variant-numeric:tabular-nums}
+.k-spawn{color:var(--accent)}.k-safety{color:var(--warn);font-weight:600}.k-crash,.k-violation{color:var(--bad);font-weight:700}
+.k-overtake{color:var(--ok)}.k-maneuver{color:#aab3c0}.k-clear,.k-planner{color:var(--muted)}
+.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:12px}
+.stat{background:#12161c;border:1px solid var(--line);border-radius:8px;padding:8px}
+.stat .v{font-size:20px;font-weight:700;font-variant-numeric:tabular-nums}
+.stat .l{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.stat.bad .v{color:var(--bad)}.stat.warn .v{color:var(--warn)}
+.error{color:var(--bad);margin-top:8px;font-size:13px}
+.note{color:var(--muted);font-size:12px;margin-top:8px}
+</style>
+</head>
+<body>
+<header>
+  <h1>jev-drive</h1>
+  <span class="sub" id="sub">connecting...</span>
+  <label class="who">Driver <select id="planner"><option value="jev">Jev</option><option value="rules">Rules</option></select></label>
+  <button id="pause">Pause</button>
+  <button id="floor" class="on">Safety floor: on</button>
+  <button id="reset">New road</button>
+</header>
+<main>
+  <canvas id="road" height="330"></canvas>
+  <div class="grid">
+    <section class="card">
+      <h2>Decision</h2>
+      <div class="decision"><span class="chip" id="chip">-</span><span class="who" id="source"></span></div>
+      <div class="bars" id="bars"></div>
+      <div class="meta" id="meta"></div>
+      <div class="error" id="error"></div>
+      <div class="stats" id="stats"></div>
+      <p class="note">Code measures and steers; the driver only picks cruise, slow, stop or overtake. The safety floor is code: it brakes at the last moment and every activation is counted. Lateral scale is exaggerated for readability.</p>
+    </section>
+    <section class="card">
+      <h2>What the driver read</h2>
+      <pre id="scene"></pre>
+    </section>
+    <section class="card">
+      <h2>Events</h2>
+      <ul class="events" id="events"></ul>
+    </section>
+  </div>
+</main>
+<script>
+const LANE_W = 3.5, ROAD_R = -LANE_W / 2, ROAD_L = LANE_W * 1.5;
+const COLORS = {cruise: '#5fd18b', slow: '#ffd166', stop: '#ff6b6b', overtake: '#6cc4ff'};
+const CAR_COLORS = ['#d9534f', '#f0ad4e', '#9b7bd4', '#e8e8e8', '#4f9d69'];
+const canvas = document.getElementById('road'), ctx = canvas.getContext('2d');
+let prev = null, cur = null, recvPrev = 0, recvCur = 0;
+
+function post(body) {
+  return fetch('/control', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)})
+    .then(r => r.json()).then(r => { if (!r.ok) alert(r.error); return r; });
+}
+document.getElementById('pause').onclick = () => post({action: cur && cur.running ? 'pause' : 'resume'});
+document.getElementById('reset').onclick = () => post({action: 'reset'});
+document.getElementById('floor').onclick = () => post({action: 'floor', on: !(cur && cur.safety_floor)});
+document.getElementById('planner').onchange = e => post({action: 'planner', planner: e.target.value});
+
+const es = new EventSource('/stream');
+es.onmessage = m => { prev = cur; recvPrev = recvCur; cur = JSON.parse(m.data); recvCur = performance.now(); panel(cur); };
+es.onerror = () => { document.getElementById('sub').textContent = 'disconnected - is the server running?'; };
+
+function lerp(a, b, t) { return a + (b - a) * t; }
+function interp() {
+  if (!cur) return null;
+  if (!prev || !cur.running) return cur;
+  const span = Math.max(1, recvCur - recvPrev), t = Math.min(1.2, (performance.now() - recvCur) / span);
+  const byId = list => Object.fromEntries(list.map(o => [o.id, o]));
+  const ph = byId(prev.hazards), po = byId(prev.oncoming);
+  const out = structuredClone(cur);
+  out.ego.x = lerp(prev.ego.x, cur.ego.x, Math.min(t, 1)) + (t > 1 ? cur.ego.v * (t - 1) * span / 1000 : 0);
+  out.ego.y = lerp(prev.ego.y, cur.ego.y, Math.min(t, 1));
+  for (const h of out.hazards) if (ph[h.id]) { h.x = lerp(ph[h.id].x, h.x, Math.min(t, 1)); h.y = lerp(ph[h.id].y, h.y, Math.min(t, 1)); }
+  for (const c of out.oncoming) if (po[c.id]) c.x = lerp(po[c.id].x, c.x, Math.min(t, 1));
+  return out;
+}
+
+function resize() {
+  const dpr = window.devicePixelRatio || 1, w = canvas.clientWidth;
+  const h = Math.round(Math.min(380, Math.max(240, w * 0.28)));
+  canvas.style.height = h + 'px';
+  if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
+    canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
+  }
+}
+window.addEventListener('resize', resize);
+
+function hash(n) { const x = Math.sin(n * 127.1) * 43758.5453; return x - Math.floor(x); }
+
+function draw() {
+  resize();
+  const s = interp(); const W = canvas.width, H = canvas.height, dpr = window.devicePixelRatio || 1;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = '#29402a'; ctx.fillRect(0, 0, W, H);
+  if (!s) { requestAnimationFrame(draw); return; }
+  const behind = 22, ahead = 128, sx = W / (behind + ahead);
+  const latMin = ROAD_R - 5.5, latMax = ROAD_L + 5.5, sy = H / (latMax - latMin);
+  const X = x => (x - (s.ego.x - behind)) * sx;
+  const Y = y => H - (y - latMin) * sy;
+  ctx.fillStyle = '#b9b4a8'; ctx.fillRect(0, Y(ROAD_L + 3.2), W, Y(ROAD_L) - Y(ROAD_L + 3.2));
+  ctx.fillRect(0, Y(ROAD_R), W, Y(ROAD_R - 3.2) - Y(ROAD_R));
+  ctx.fillStyle = '#34383f'; ctx.fillRect(0, Y(ROAD_L), W, Y(ROAD_R) - Y(ROAD_L));
+  ctx.fillStyle = '#e9e9e9'; ctx.fillRect(0, Y(ROAD_L) - 1 * dpr, W, 2 * dpr); ctx.fillRect(0, Y(ROAD_R) - 1 * dpr, W, 2 * dpr);
+  ctx.fillStyle = '#f2c94c';
+  const dash = 6, gap = 6, start = Math.floor((s.ego.x - behind) / (dash + gap)) * (dash + gap);
+  for (let x = start; x < s.ego.x + ahead; x += dash + gap) ctx.fillRect(X(x), Y(LANE_W / 2) - 1.5 * dpr, dash * sx, 3 * dpr);
+  const t0 = Math.floor((s.ego.x - behind) / 9) - 1;
+  for (let i = t0; i < t0 + (behind + ahead) / 9 + 3; i++) {
+    for (const side of [0, 1]) {
+      if (hash(i * 3 + side) < 0.45) continue;
+      const x = i * 9 + hash(i + side * 7) * 6, y = side ? ROAD_L + 4.6 + hash(i * 5) * 0.6 : ROAD_R - 4.6 - hash(i * 5) * 0.6;
+      ctx.fillStyle = '#1f3b22'; ctx.beginPath(); ctx.arc(X(x), Y(y), (1.1 + hash(i * 9 + side)) * sy * 0.55, 0, 7); ctx.fill();
+      ctx.fillStyle = '#2f5a33'; ctx.beginPath(); ctx.arc(X(x) - 2 * dpr, Y(y) - 2 * dpr, (0.8 + hash(i * 9 + side)) * sy * 0.45, 0, 7); ctx.fill();
+    }
+  }
+  ctx.fillStyle = 'rgba(255,255,255,.55)'; ctx.font = `${11 * dpr}px ui-sans-serif,system-ui`; ctx.textAlign = 'center';
+  for (let d = 25; d < ahead; d += 25) { ctx.fillRect(X(s.ego.x + d), Y(ROAD_L + 3.2), 1 * dpr, 5 * dpr); ctx.fillText(d + ' m', X(s.ego.x + d), Y(ROAD_L + 3.2) + 16 * dpr); }
+  const e = s.ego;
+  const target = s.decision && s.hazards.length ? nearestInLane(s) : null;
+  if (target && (e.maneuver === 'stop' || e.phase)) {
+    ctx.strokeStyle = e.phase ? '#6cc4ff' : '#ff6b6b'; ctx.setLineDash([6 * dpr, 5 * dpr]); ctx.lineWidth = 2 * dpr;
+    ctx.beginPath(); ctx.ellipse(X(target.x), Y(target.y), (target.l / 2 + 2) * sx, (target.w / 2 + 0.9) * sy, 0, 0, 7); ctx.stroke(); ctx.setLineDash([]);
+    if (e.maneuver === 'stop' && !e.phase) { ctx.fillStyle = 'rgba(255,107,107,.85)'; ctx.fillRect(X(target.x - target.l / 2 - 6), Y(LANE_W / 2), 3 * dpr, Y(ROAD_R) - Y(LANE_W / 2)); }
+  }
+  for (const h of s.hazards) drawHazard(h, X, Y, sx, sy, dpr, s.t);
+  for (const c of s.oncoming) drawCar(X(c.x), Y(c.y), 4.5 * sx, 1.8 * sy, CAR_COLORS[c.c], -1, false, dpr);
+  drawCar(X(e.x), Y(e.y), 4.5 * sx, 1.8 * sy, '#3b82f6', 1, e.a < -1, dpr, e.aeb);
+  const m = e.phase ? 'overtake' : e.maneuver, label = e.aeb ? 'EMERGENCY BRAKE' : m.toUpperCase();
+  ctx.font = `700 ${12 * dpr}px ui-sans-serif,system-ui`; const tw = ctx.measureText(label).width + 14 * dpr;
+  const tx = X(e.x) - tw / 2, ty = Y(e.y) - 1.9 * sy - 14 * dpr;
+  ctx.fillStyle = e.aeb ? '#ff6b6b' : COLORS[m]; roundRect(tx, ty, tw, 20 * dpr, 6 * dpr); ctx.fill();
+  ctx.fillStyle = '#10141a'; ctx.textAlign = 'center'; ctx.fillText(label, X(e.x), ty + 14 * dpr);
+  ctx.textAlign = 'right'; ctx.font = `${12 * dpr}px ui-sans-serif,system-ui`;
+  for (const h of s.hazards) if (h.x > e.x + ahead) { ctx.fillStyle = '#fff'; ctx.fillText(`${h.kind} ${Math.round(h.x - e.x)} m ▶`, W - 8 * dpr, Y(h.y) + 4 * dpr); }
+  if (s.frozen) { ctx.fillStyle = 'rgba(255,60,60,.25)'; ctx.fillRect(0, 0, W, H); ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.font = `800 ${34 * dpr}px ui-sans-serif`; ctx.fillText('CRASH', W / 2, H / 2); }
+  if (e.aeb) { ctx.strokeStyle = '#ff6b6b'; ctx.lineWidth = 6 * dpr; ctx.strokeRect(3 * dpr, 3 * dpr, W - 6 * dpr, H - 6 * dpr); }
+  if (!s.running) { ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.fillRect(0, 0, W, H); ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.font = `700 ${22 * dpr}px ui-sans-serif`; ctx.fillText('PAUSED', W / 2, H / 2); }
+  requestAnimationFrame(draw);
+}
+
+function nearestInLane(s) {
+  const e = s.ego; let best = null;
+  for (const h of s.hazards) {
+    const inLane = h.y + h.w / 2 > ROAD_R && h.y - h.w / 2 < LANE_W / 2;
+    if ((inLane || h.state === 'crossing' || h.state === 'running') && h.x + h.l / 2 > e.x - 2.25 && (!best || h.x < best.x)) best = h;
+  }
+  return best;
+}
+
+function roundRect(x, y, w, h, r) { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); }
+
+function drawCar(cx, cy, L, Wd, color, dir, braking, dpr, aeb) {
+  ctx.save(); ctx.translate(cx, cy);
+  ctx.fillStyle = 'rgba(0,0,0,.35)'; roundRect(-L / 2 + 2 * dpr, -Wd / 2 + 3 * dpr, L, Wd, 5 * dpr); ctx.fill();
+  ctx.fillStyle = color; roundRect(-L / 2, -Wd / 2, L, Wd, 5 * dpr); ctx.fill();
+  ctx.fillStyle = 'rgba(20,30,45,.85)'; roundRect(dir > 0 ? L * 0.08 : -L * 0.34, -Wd * 0.36, L * 0.26, Wd * 0.72, 3 * dpr); ctx.fill();
+  ctx.fillStyle = '#fff7c2'; const fx = dir > 0 ? L / 2 - 3 * dpr : -L / 2; ctx.fillRect(fx, -Wd * 0.4, 3 * dpr, Wd * 0.2); ctx.fillRect(fx, Wd * 0.2, 3 * dpr, Wd * 0.2);
+  if (braking) { ctx.fillStyle = aeb ? '#ff2020' : '#ff4d4d'; ctx.shadowColor = '#ff2020'; ctx.shadowBlur = 14 * dpr; const bx = dir > 0 ? -L / 2 : L / 2 - 3 * dpr; ctx.fillRect(bx, -Wd * 0.42, 3 * dpr, Wd * 0.22); ctx.fillRect(bx, Wd * 0.2, 3 * dpr, Wd * 0.22); }
+  ctx.restore();
+}
+
+function drawHazard(h, X, Y, sx, sy, dpr, t) {
+  const cx = X(h.x), cy = Y(h.y), L = h.l * sx, Wd = h.w * sy;
+  ctx.save(); ctx.translate(cx, cy);
+  if (h.kind === 'van') {
+    ctx.fillStyle = '#eceff3'; roundRect(-L / 2, -Wd / 2, L, Wd, 4 * dpr); ctx.fill();
+    ctx.fillStyle = '#9aa3ad'; ctx.fillRect(-L / 2 + L * 0.72, -Wd * 0.38, L * 0.2, Wd * 0.76);
+    if (Math.floor(t * 2.5) % 2 === 0) { ctx.fillStyle = '#ffa31a'; ctx.shadowColor = '#ffa31a'; ctx.shadowBlur = 12 * dpr;
+      for (const [x, y] of [[-L / 2, -Wd / 2], [-L / 2, Wd / 2 - 4 * dpr], [L / 2 - 4 * dpr, -Wd / 2], [L / 2 - 4 * dpr, Wd / 2 - 4 * dpr]]) ctx.fillRect(x, y, 4 * dpr, 4 * dpr); }
+  } else if (h.kind === 'boxes') {
+    for (const [dx, dy] of [[-0.3, -0.35], [0.25, 0.1], [-0.2, 0.3]]) { ctx.fillStyle = '#b5834a'; ctx.fillRect(dx * L - L * 0.3, dy * Wd - Wd * 0.25, L * 0.6, Wd * 0.5); ctx.fillStyle = '#8a5e2e'; ctx.fillRect(dx * L - L * 0.3, dy * Wd - 1 * dpr, L * 0.6, 2 * dpr); }
+  } else if (h.kind === 'cones') {
+    for (let i = 0; i < 4; i++) { const x = -L / 2 + (i + 0.5) * L / 4, y = (i % 2 ? 0.25 : -0.25) * Wd; ctx.fillStyle = '#ff7a1a'; ctx.beginPath(); ctx.arc(x, y, 5 * dpr, 0, 7); ctx.fill(); ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(x, y, 2 * dpr, 0, 7); ctx.fill(); }
+  } else if (h.kind === 'branch') {
+    ctx.strokeStyle = '#6b4a2b'; ctx.lineWidth = 5 * dpr; ctx.beginPath(); ctx.moveTo(-L / 2, Wd / 2); ctx.lineTo(L / 2, -Wd / 2); ctx.stroke();
+    ctx.lineWidth = 3 * dpr; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(L * 0.3, Wd * 0.3); ctx.stroke();
+    ctx.fillStyle = '#3f7a3a'; for (const [x, y] of [[L / 2, -Wd / 2], [L * 0.3, Wd * 0.3], [-L * 0.2, Wd * 0.1]]) { ctx.beginPath(); ctx.arc(x, y, 6 * dpr, 0, 7); ctx.fill(); }
+  } else if (h.kind === 'pedestrian') {
+    const step = Math.sin(t * 9) * 3 * dpr * (h.state === 'crossing' ? 1 : 0.4);
+    ctx.fillStyle = '#7c5cff'; ctx.beginPath(); ctx.ellipse(0, 0, 7 * dpr, 9 * dpr, 0, 0, 7); ctx.fill();
+    ctx.fillStyle = '#2b2b2b'; ctx.fillRect(-6 * dpr + step, 6 * dpr, 4 * dpr, 6 * dpr); ctx.fillRect(2 * dpr - step, 6 * dpr, 4 * dpr, 6 * dpr);
+    ctx.fillStyle = '#f1c9a5'; ctx.beginPath(); ctx.arc(0, -9 * dpr, 5 * dpr, 0, 7); ctx.fill();
+  } else if (h.kind === 'deer') {
+    ctx.fillStyle = '#9a6a3c'; ctx.beginPath(); ctx.ellipse(0, 0, L / 2, Wd / 2 + 2 * dpr, 0, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(-L / 2 - 2 * dpr, -3 * dpr, 5 * dpr, 0, 7); ctx.fill();
+    ctx.strokeStyle = '#d9c3a0'; ctx.lineWidth = 2 * dpr; ctx.beginPath(); ctx.moveTo(-L / 2 - 2 * dpr, -7 * dpr); ctx.lineTo(-L / 2 - 7 * dpr, -14 * dpr); ctx.moveTo(-L / 2, -7 * dpr); ctx.lineTo(-L / 2 + 3 * dpr, -14 * dpr); ctx.stroke();
+  } else if (h.kind === 'dog') {
+    ctx.fillStyle = '#c8a06a'; ctx.beginPath(); ctx.ellipse(0, 0, 9 * dpr, 5 * dpr, 0, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.arc(0, h.state === 'running' ? 7 * dpr : -7 * dpr, 4 * dpr, 0, 7); ctx.fill();
+  }
+  ctx.restore();
+}
+
+function panel(s) {
+  const st = s.planner_status || {}, e = s.ego;
+  document.getElementById('sub').textContent = `seed ${s.seed} · ${Math.round(e.v * 3.6)} km/h · t ${s.t.toFixed(0)} s` + (s.jev_available ? '' : ' · Jev unavailable (no API key): rules only');
+  document.getElementById('planner').value = s.planner;
+  document.getElementById('planner').querySelector('option[value=jev]').disabled = !s.jev_available;
+  document.getElementById('pause').textContent = s.running ? 'Pause' : 'Resume';
+  const fl = document.getElementById('floor'); fl.textContent = 'Safety floor: ' + (s.safety_floor ? 'on' : 'off'); fl.className = s.safety_floor ? 'on' : '';
+  const d = s.decision || {}, m = e.phase ? 'overtake' : e.maneuver;
+  const chip = document.getElementById('chip'); chip.textContent = e.aeb ? 'EMERGENCY BRAKE' : m.toUpperCase(); chip.style.color = e.aeb ? '#ff6b6b' : COLORS[m];
+  document.getElementById('source').textContent = s.planner === 'jev' ? `chosen by ${st.name || 'Jev'}` + (d.note ? ` · ${d.note}` : '') : 'chosen by the rule planner (no model)';
+  const probs = st.probabilities || {}, top = Object.entries(probs).sort((a, b) => b[1] - a[1])[0];
+  document.getElementById('bars').innerHTML = s.planner === 'jev' ? ['cruise', 'slow', 'stop', 'overtake'].map(k => {
+    const p = probs[k] || 0; return `<div class="bar ${top && top[0] === k ? 'top' : ''}"><span>${k}</span><div class="track"><div class="fill" style="width:${(p * 100).toFixed(1)}%"></div></div><span>${p.toFixed(2)}</span></div>`; }).join('') : '';
+  const meta = s.planner === 'jev' ? [
+    ['answer', st.last_latency_ms != null ? Math.round(st.last_latency_ms) + ' ms' : '-'], ['median', st.p50_latency_ms != null ? Math.round(st.p50_latency_ms) + ' ms' : '-'],
+    ['requests', st.requests], ['cost', '$' + (st.cost_usd || 0).toFixed(4)]] : [['decisions', 'every 0.5 s, instant']];
+  document.getElementById('meta').innerHTML = meta.map(([k, v]) => `<span>${k} <b>${v}</b></span>`).join('');
+  document.getElementById('error').textContent = st.error ? 'Jev error: ' + st.error : '';
+  document.getElementById('scene').textContent = st.scene ? JSON.stringify(st.scene, null, 1) : 'waiting for the first request...';
+  document.getElementById('events').innerHTML = [...s.events].reverse().map(ev => `<li><span class="t">${ev.t.toFixed(1)}</span><span class="k-${ev.kind}">${escapeHtml(ev.text)}</span></li>`).join('');
+  const x = s.stats;
+  const cells = [['km driven', (x.distance_m / 1000).toFixed(2)], ['hazards', x.hazards], ['overtakes', x.overtakes], ['crashes', x.crashes, x.crashes ? 'bad' : ''],
+    ['safety floor', x.safety_floor, x.safety_floor ? 'warn' : ''], ['violations', x.violations, x.violations ? 'bad' : ''], ['stopped s', x.stopped_s.toFixed(0)], ['needless stop s', x.unneeded_stop_s.toFixed(0)]];
+  document.getElementById('stats').innerHTML = cells.map(([l, v, c]) => `<div class="stat ${c || ''}"><div class="v">${v}</div><div class="l">${l}</div></div>`).join('');
+}
+function escapeHtml(t) { return String(t).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c])); }
+requestAnimationFrame(draw);
+</script>
+</body>
+</html>
