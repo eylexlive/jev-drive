@@ -120,6 +120,7 @@ Keep the browser tab visible in camera mode. The tab is also the renderer: it dr
 | `--pace` | `normal` (default), `video` | `video` gives a calm first 15 seconds and then well-spaced obstacles, which suits a recording. |
 | `--no-shadow` | | By default the model that is not driving answers the same request in the background, so the two can be compared on screen. This turns that off and saves the second model's calls. |
 | `--provider` | `openrouter` (default), `typesafe` | Call Jev through OpenRouter or TypeSafe's own API (`TYPESAFE_API_KEY`). Gemini always goes through OpenRouter. |
+| `--take` | | A scripted recording of about 45 seconds: the car starts from rest, a parked van appears at 9 s, the eye switches to the camera after the first overtake, and boxes drop in front of the car. The simulation waits for you to press play. The oncoming lane is kept clear during the two overtakes so the take works first time. |
 | `--seed` | integer | Same seed, same road. |
 | `--no-log` | | Do not write events and decisions to `runs/`. |
 

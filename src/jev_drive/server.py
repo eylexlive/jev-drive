@@ -26,6 +26,9 @@ from .world import World
 FPS = 30
 
 
+TAKE_VAN_DISTANCE_M = 110.0
+
+
 HAZARD_KINDS = ("van", "boxes", "cones", "branch", "pedestrian", "deer", "dog")
 
 
@@ -71,6 +74,7 @@ class Session:
         self.bridge = RenderBridge()
         self.camera = Camera() if client and openrouter else None
         self.e2e_frame: bytes | None = None
+        self.take: dict | None = None
         self.vision = VisionLLMPlanner(LLMDriver(), lambda: self.e2e_frame) if client and openrouter else None
         available = {"rules": True, "jev": self.jev, "gemini": self.gemini, "gemini_vision": self.vision}
         self.planner = planner if available.get(planner) else ("jev" if self.jev else "rules")
@@ -93,10 +97,12 @@ class Session:
             threading.Thread(target=self._gemini_loop, daemon=True).start()
         if self.vision:
             threading.Thread(target=self._vision_loop, daemon=True).start()
+        threading.Thread(target=self._take_loop, daemon=True).start()
         if self.jev:
             self.jev_thread = threading.Thread(target=self._jev_loop, daemon=True)
             self.jev_thread.start()
-        self.running.set()
+        if not self.take:
+            self.running.set()
 
     def _jev_loop(self) -> None:
         self.jev.run(lambda: self.world, self.lock, lambda: self.running.is_set() and self.planner == "jev",
@@ -105,6 +111,55 @@ class Session:
     def _gemini_loop(self) -> None:
         self.gemini.run(lambda: self.world, self.lock, lambda: self.running.is_set() and self.planner == "gemini",
                         self.stop, on_decision=self._on_driver_decision, observe=self._observe, on_scene=self._on_scene)
+
+    def setup_take(self) -> None:
+        self.seed += 1
+        self.world = World(seed=self.seed, safety_floor=True,
+                           **{**self.world_kwargs, "spawning": False, "oncoming_headway_s": 1e9})
+        w = self.world
+        w.oncoming.clear()
+        for ahead in (70.0, 150.0, 230.0):
+            w._spawn_oncoming(w.ego.x + ahead)
+        w.next_oncoming_t = float("inf")
+        w.next_hazard_t = float("inf")
+        w.ego.vx = 0.0
+        self.eye, self.planner, self.view_mode = "code", "jev" if self.jev else "rules", "chase"
+        self.perception = None
+        self.camera_info = {**self.camera_info, "objects": []}
+        self.events_written, self.next_rule_t = 0, 0.0
+        self.take = {"world": w, "van": None, "camera_at": None, "boxes": False, "early_car": False, "traffic": False}
+        self.running.clear()
+
+    def _take_loop(self) -> None:
+        while not self.stop.is_set():
+            time.sleep(0.1)
+            take = self.take
+            if not take or not self.running.is_set():
+                continue
+            with self.lock:
+                w = self.world
+                if w is not take["world"]:
+                    continue
+                e = w.ego
+                if not take["early_car"] and w.t >= 3.0:
+                    take["early_car"] = True
+                    w._spawn_oncoming(e.x + 240)
+                if take["van"] is None and w.t >= 9.0:
+                    take["van"] = w.spawn_hazard("van", distance=TAKE_VAN_DISTANCE_M, sudden=False)
+                van = take["van"]
+                van_passed = van is not None and van.front < e.rear - 10 and not e.phase
+                if take["camera_at"] is None and van_passed and w.t >= 22.0:
+                    take["camera_at"] = w.t
+                    if self.camera:
+                        self.eye = "camera"
+                        w.log("planner", "eye switched to camera")
+                if take["boxes"] is False and take["camera_at"] is not None and w.t >= max(30.0, take["camera_at"] + 6.0):
+                    take["boxes"] = w.spawn_hazard("boxes", sudden=True)
+                boxes = take["boxes"]
+                if not take["traffic"] and boxes and boxes.front < e.rear - 10 and not e.phase:
+                    take["traffic"] = True
+                    w.oncoming_headway_s = 6.0
+                    w.next_oncoming_t = w.t
 
     def _vision_loop(self) -> None:
         self.vision.run(lambda: self.world, self.lock, lambda: self.running.is_set() and self.planner == "gemini_vision",
@@ -330,6 +385,8 @@ class Session:
                 self.running.clear()
             elif action == "resume":
                 self.running.set()
+            elif action == "reset" and self.take:
+                self.setup_take()
             elif action == "reset":
                 self.seed = int(body.get("seed") or self.seed + 1)
                 self.world = World(seed=self.seed, safety_floor=self.world.safety_floor, **self.world_kwargs)

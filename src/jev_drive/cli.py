@@ -30,6 +30,8 @@ def cmd_serve(args) -> int:
     }
     session = Session(seed=args.seed, planner=args.planner, client=client, log_dir=log_dir,
                       world_kwargs=paces[args.pace], shadow=not args.no_shadow)
+    if args.take:
+        session.setup_take()
     if args.eye == "camera":
         if session.camera is None:
             print("the camera eye needs an API key; starting with the code eye", file=sys.stderr)
@@ -145,6 +147,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--planner", choices=("jev", "gemini", "gemini_vision", "rules"), default="jev",
                    help="gemini_vision: Gemini looks at the camera frame and decides by itself")
     p.add_argument("--pace", choices=("normal", "video"), default="normal", help="video: fewer, well-spaced obstacles")
+    p.add_argument("--take", action="store_true",
+                   help="a scripted ~45 s recording: start from rest, a van at 9 s, camera eye, sudden boxes; press play to start")
     p.add_argument("--no-shadow", action="store_true", help="do not ask the other model for the side-by-side view")
     p.add_argument("--provider", choices=("openrouter", "typesafe"), default="openrouter")
     p.add_argument("--model")
