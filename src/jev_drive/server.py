@@ -16,11 +16,11 @@ from pathlib import Path
 
 from .client import Client
 from . import director as director_mod
-from .planners import JevPlanner, LLMPlanner, RulePlanner, describe
+from .planners import JevPlanner, LLMPlanner, RulePlanner, VisionLLMPlanner, describe
 from .vision.llm_driver import LLMDriver
 from .vision.bridge import TYPES, RenderBridge
 from .vision.perceive import LANE_RULE, Camera, cued_prompt
-from .vision.sensors import compose, fuse, radar
+from .vision.sensors import compose, fuse, radar, radar_scene
 from .world import World
 
 FPS = 30
@@ -70,7 +70,10 @@ class Session:
         self.eye = "code"
         self.bridge = RenderBridge()
         self.camera = Camera() if client and openrouter else None
-        self.planner = planner if planner == "rules" or (planner == "jev" and self.jev) or (planner == "gemini" and self.gemini) else ("jev" if self.jev else "rules")
+        self.e2e_frame: bytes | None = None
+        self.vision = VisionLLMPlanner(LLMDriver(), lambda: self.e2e_frame) if client and openrouter else None
+        available = {"rules": True, "jev": self.jev, "gemini": self.gemini, "gemini_vision": self.vision}
+        self.planner = planner if available.get(planner) else ("jev" if self.jev else "rules")
         self.camera_info: dict = {"frame": 0, "objects": [], "latency_ms": None, "cost_usd": 0.0, "error": None}
         self.last_jpeg: bytes | None = None
         self.radar_rng = random.Random(1)
@@ -88,6 +91,8 @@ class Session:
             threading.Thread(target=self._director_loop, daemon=True).start()
         if self.gemini:
             threading.Thread(target=self._gemini_loop, daemon=True).start()
+        if self.vision:
+            threading.Thread(target=self._vision_loop, daemon=True).start()
         if self.jev:
             self.jev_thread = threading.Thread(target=self._jev_loop, daemon=True)
             self.jev_thread.start()
@@ -100,6 +105,22 @@ class Session:
     def _gemini_loop(self) -> None:
         self.gemini.run(lambda: self.world, self.lock, lambda: self.running.is_set() and self.planner == "gemini",
                         self.stop, on_decision=self._on_driver_decision, observe=self._observe, on_scene=self._on_scene)
+
+    def _vision_loop(self) -> None:
+        self.vision.run(lambda: self.world, self.lock, lambda: self.running.is_set() and self.planner == "gemini_vision",
+                        self.stop, on_decision=self._on_driver_decision, observe=self._observe_frame)
+
+    def _observe_frame(self, world_fn, lock):
+        with lock:
+            world = world_fn()
+            snapshot, captured_t = world.snapshot(), world.t
+            scene = radar_scene(world, self.radar_rng)
+        jpeg = self.bridge.render(snapshot, timeout=20)
+        self.e2e_frame = self.last_jpeg = jpeg
+        self.camera_info = {**self.camera_info, "frame": self.camera_info["frame"] + 1, "objects": []}
+        with lock:
+            scene["camera_frame_age_s"] = round(world.t - captured_t, 1)
+        return world, scene
 
     def _director_loop(self) -> None:
         while not self.stop.is_set():
@@ -320,9 +341,11 @@ class Session:
                 wanted = body.get("planner")
                 if wanted in ("jev", "gemini") and not self.jev:
                     return {"ok": False, "error": "Models are not available: start the server with an API key"}
-                if wanted == "gemini" and not self.gemini:
+                if wanted in ("gemini", "gemini_vision") and not self.gemini:
                     return {"ok": False, "error": "The Gemini driver needs OPENROUTER_API_KEY"}
-                if wanted in ("jev", "gemini", "rules"):
+                if wanted in ("jev", "gemini", "gemini_vision", "rules"):
+                    if wanted == "gemini_vision":
+                        self.eye = "code"
                     self.planner = wanted
                     self.world.log("planner", f"driver switched to {wanted}")
             elif action == "hazards":
@@ -371,6 +394,8 @@ class Session:
                     self.director["active"] = False
             elif action == "eye":
                 wanted = body.get("eye")
+                if wanted == "camera" and self.planner == "gemini_vision":
+                    return {"ok": False, "error": "This driver looks at the camera frame itself; pick another driver first"}
                 if wanted == "camera" and self.camera is None:
                     return {"ok": False, "error": "The camera eye needs an API key (OpenRouter)"}
                 if wanted in ("code", "camera"):
@@ -389,7 +414,7 @@ class Session:
             snap["events"] = self.world.events[-14:]
             scene = describe(self.world)
             snap["code_ahead"] = scene["ahead"] if isinstance(scene["ahead"], list) else []
-        driving = {"jev": self.jev, "gemini": self.gemini}.get(self.planner)
+        driving = {"jev": self.jev, "gemini": self.gemini, "gemini_vision": self.vision}.get(self.planner)
         status = (driving.status if driving else self.rules.status).public()
         if self.planner == "rules":
             status["scene"] = scene
@@ -397,7 +422,8 @@ class Session:
                     jev_available=bool(self.jev), safety_floor=self.world.safety_floor, eye=self.eye,
                     camera=self.camera_info, camera_model=self.camera.model if self.camera else None,
                     models={name: {k: v for k, v in planner.status.public().items() if k != "scene"}
-                            for name, planner in (("jev", self.jev), ("gemini", self.gemini)) if planner},
+                            for name, planner in (("jev", self.jev), ("gemini", self.gemini),
+                                                  ("gemini_vision", self.vision)) if planner},
                     agreement=self.agreement,
                     race={"frame": self.race.get("frame"), "answers": self.race.get("answers", {})},
                     view=self.view_mode, last_take=self.last_take,
@@ -477,7 +503,7 @@ def make_handler(session: Session):
             if self.path == "/render/result":
                 length = min(int(self.headers.get("Content-Length") or 0), 20_000_000)
                 body = json.loads(self.rfile.read(length))
-                session.bridge.deliver(body["id"], base64.b64decode(body["jpeg"].split(",", 1)[1]))
+                session.bridge.deliver(body["id"], base64.b64decode(body["jpeg"].split(",", 1)[1]), body.get("boxes"))
                 return self._send(200, b'{"ok": true}', "application/json")
             if self.path != "/control":
                 return self._send(404, b"not found", "text/plain")

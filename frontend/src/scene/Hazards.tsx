@@ -332,7 +332,11 @@ export function Hazards({ hazards, target, labels = true }: { hazards: Hazard[];
     <>
       {hazards.map((h) => {
         const Model = MODELS[h.kind]
-        return <Model key={h.id} h={h} />
+        return (
+          <group key={h.id} name={`hazard:${h.id}`}>
+            <Model h={h} />
+          </group>
+        )
       })}
       {hazards.filter((h) => h.id === target).map((h) => <TargetMarker key={`t${h.id}`} h={h} label={labels} />)}
     </>

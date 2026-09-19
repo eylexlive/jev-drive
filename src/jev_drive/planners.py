@@ -201,7 +201,7 @@ class JevPlanner:
             with lock:
                 applied = active_fn() and world_fn() is world
                 if applied:
-                    world.command(choice, "jev", probabilities=probabilities, latency_ms=result.get("latency_ms"))
+                    world.command(choice, getattr(self, "label", self.name), probabilities=probabilities, latency_ms=result.get("latency_ms"))
             if applied and on_decision:
                 on_decision({"t": round(world.t, 2), "scene": scene, "choice": choice, "probabilities": probabilities,
                              "latency_ms": result.get("latency_ms"), "driver": self.name})
@@ -221,3 +221,17 @@ class LLMPlanner(JevPlanner):
 
     def ask(self, scene: dict):
         return self.driver.ask(scene)
+
+
+class VisionLLMPlanner(LLMPlanner):
+
+    name = "gemini_vision"
+    label = "gemini (sees)"
+
+    def __init__(self, driver, frame_fn, min_interval_s: float = 0.2) -> None:
+        super().__init__(driver, min_interval_s)
+        self.frame_fn = frame_fn
+        self.status = PlannerStatus(f"gemini sees ({driver.model.split('/')[-1]})")
+
+    def ask(self, scene: dict):
+        return self.driver.ask(scene, image=self.frame_fn())

@@ -11,3 +11,6 @@ node_modules/
 *.jsonl
 *.mp4
 *.webm
+!data/scenes-v1/ground_truth.jsonl
+data/scenes-v1/frames/
+data/scenes-v1/frames.zip

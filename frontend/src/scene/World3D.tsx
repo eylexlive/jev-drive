@@ -1,7 +1,7 @@
 import { Environment, Lightformer, Sky } from "@react-three/drei"
 import { Canvas, useFrame, useThree } from "@react-three/fiber"
 import { Bloom, EffectComposer, Vignette } from "@react-three/postprocessing"
-import { Suspense, useRef } from "react"
+import { Suspense, useEffect, useRef } from "react"
 import * as THREE from "three"
 
 import { LANE_W, type Snapshot, advanceView, live, view } from "@/lib/sim"
@@ -62,7 +62,7 @@ function MirroredCar({ id, colour }: { id: number; colour: number }) {
     if (car.current) car.current.brake.emissiveIntensity = c.v < 5 ? 5 : 0.7
   })
   return (
-    <group ref={group} rotation-y={Math.PI}>
+    <group ref={group} rotation-y={Math.PI} name={`oncoming:${id}`}>
       <Car ref={car} paint={PAINTS[colour % PAINTS.length]} />
     </group>
   )
@@ -165,6 +165,48 @@ function CameraRig({ mode }: { mode: CameraMode }) {
   return null
 }
 
+export interface ProjectedBox {
+  id: number
+  kind: "hazard" | "oncoming"
+  box_2d: [number, number, number, number]
+}
+
+function BoxProjector() {
+  const { scene, camera } = useThree()
+  useEffect(() => {
+    const host = window as unknown as { __projectBoxes?: () => ProjectedBox[] }
+    const corner = new THREE.Vector3()
+    host.__projectBoxes = () => {
+      camera.updateMatrixWorld()
+      const out: ProjectedBox[] = []
+      scene.traverse((object) => {
+        const [kind, id] = object.name.split(":")
+        if (kind !== "hazard" && kind !== "oncoming") return
+        const box = new THREE.Box3().setFromObject(object, true)
+        if (box.isEmpty()) return
+        let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity
+        for (let i = 0; i < 8; i++) {
+          corner.set(i & 1 ? box.max.x : box.min.x, i & 2 ? box.max.y : box.min.y, i & 4 ? box.max.z : box.min.z)
+          if (corner.clone().applyMatrix4(camera.matrixWorldInverse).z > -0.2) continue
+          corner.project(camera)
+          x0 = Math.min(x0, corner.x); x1 = Math.max(x1, corner.x)
+          y0 = Math.min(y0, corner.y); y1 = Math.max(y1, corner.y)
+        }
+        if (x0 === Infinity) return
+        const clamp = (v: number) => Math.round(Math.min(1000, Math.max(0, v)))
+        const b: [number, number, number, number] = [clamp((1 - y1) * 500), clamp((x0 + 1) * 500), clamp((1 - y0) * 500), clamp((x1 + 1) * 500)]
+        if (b[2] - b[0] < 3 || b[3] - b[1] < 3) return
+        out.push({ id: Number(id), kind, box_2d: b })
+      })
+      return out
+    }
+    return () => {
+      delete host.__projectBoxes
+    }
+  }, [scene, camera])
+  return null
+}
+
 function Clock() {
   useFrame((_, delta) => advanceView(Math.min(delta, 0.1)), -1)
   return null
@@ -196,6 +238,7 @@ export function World3D({ snap, mode, render = false, labels = true }: { snap: S
         {!render && <StopLine />}
       </Suspense>
       <CameraRig mode={mode} />
+      {render && <BoxProjector />}
       {!render && (
         <EffectComposer multisampling={4}>
           <Bloom mipmapBlur intensity={0.75} luminanceThreshold={0.9} luminanceSmoothing={0.2} />

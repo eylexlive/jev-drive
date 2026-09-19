@@ -42,6 +42,7 @@ export interface PlannerStatus {
   probabilities: Partial<Record<Maneuver, number>>
   scene: unknown
   error: string | null
+  why?: string | null
 }
 
 export interface Snapshot {
@@ -54,7 +55,7 @@ export interface Snapshot {
   decision: { maneuver?: Maneuver; source?: string; note?: string; probabilities?: Record<string, number>; latency_ms?: number }
   frozen: boolean
   events: SimEvent[]
-  planner: "jev" | "gemini" | "rules"
+  planner: "jev" | "gemini" | "gemini_vision" | "rules"
   planner_status: PlannerStatus
   running: boolean
   seed: number
@@ -63,7 +64,7 @@ export interface Snapshot {
   eye: "code" | "camera"
   camera: { frame: number; objects: { what: string; where: string; approx_distance_m: number | null; box_2d?: number[]; radar?: string }[]; latency_ms: number | null; cost_usd: number; error: string | null }
   camera_model: string | null
-  models: Record<"jev" | "gemini", ModelStatus>
+  models: Partial<Record<"jev" | "gemini" | "gemini_vision", ModelStatus>>
   agreement: { same: number; different: number }
   hazard_settings: { kinds: string[]; interval_s: number; sudden: boolean }
   race: { frame: number | null; answers: Record<string, { choice: string; after_s: number }> }

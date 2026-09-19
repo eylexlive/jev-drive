@@ -34,9 +34,16 @@ async function send(body: Record<string, unknown>) {
   if (!result.ok) toast.error(result.error ?? "Request failed")
 }
 
+const DRIVER_NAME: Record<Snapshot["planner"], string> = {
+  jev: "Jev",
+  gemini: "Gemini (reads text)",
+  gemini_vision: "Gemini (sees the frame)",
+  rules: "rules",
+}
+
 function TitleChip({ snap }: { snap: Snapshot | null }) {
-  const eye = snap?.eye === "camera" ? "Gemini camera" : "code-written text"
-  const driver = snap?.planner === "gemini" ? "Gemini (LLM)" : snap?.planner === "rules" ? "rules" : "Jev"
+  const eye = snap?.planner === "gemini_vision" ? "camera frame, read by the driver" : snap?.eye === "camera" ? "Gemini camera" : "code-written text"
+  const driver = DRIVER_NAME[snap?.planner ?? "jev"]
   return (
     <div className="pointer-events-auto flex items-center gap-2 rounded-xl bg-card/75 px-3 py-2 ring-1 ring-foreground/10 backdrop-blur-md">
       <CarFrontIcon />
@@ -80,11 +87,12 @@ function Controls({ snap, camera, setCamera, recorder, onClean, share, setShare,
   return (
     <div className="pointer-events-auto flex flex-wrap items-center gap-1.5 rounded-xl bg-card/75 p-1.5 ring-1 ring-foreground/10 backdrop-blur-md">
       <Select value={snap?.planner ?? "jev"} onValueChange={(v) => send({ action: "planner", planner: v })}>
-        <SelectTrigger size="sm" className="w-32" aria-label="Driver"><SelectValue /></SelectTrigger>
+        <SelectTrigger size="sm" className="w-40" aria-label="Driver"><SelectValue /></SelectTrigger>
         <SelectContent>
           <SelectGroup>
             <SelectItem value="jev" disabled={noKey}>Driver: Jev</SelectItem>
             <SelectItem value="gemini" disabled={noKey}>Driver: Gemini</SelectItem>
+            <SelectItem value="gemini_vision" disabled={noKey}>Driver: Gemini sees</SelectItem>
             <SelectItem value="rules">Driver: Rules</SelectItem>
           </SelectGroup>
         </SelectContent>
@@ -169,7 +177,7 @@ function Speed({ snap }: { snap: Snapshot }) {
   )
 }
 
-function Decision({ snap }: { snap: Snapshot }) {
+function Decision({ snap, share }: { snap: Snapshot; share: boolean }) {
   const status = snap.planner_status
   const current: Maneuver = snap.ego.phase ? "overtake" : snap.ego.maneuver
   const probs = status.probabilities ?? {}
@@ -178,14 +186,15 @@ function Decision({ snap }: { snap: Snapshot }) {
   return (
     <Card size="sm" className="pointer-events-auto w-80 max-w-full bg-card/80 backdrop-blur-md lg:w-[26rem]">
       <CardHeader>
-        <CardDescription>{isJev ? "Jev's decision" : "Rule planner's decision"}</CardDescription>
+        <CardDescription>{isJev ? "Jev's decision" : snap.planner === "rules" ? "Rule planner's decision" : `${DRIVER_NAME[snap.planner]}: decision`}</CardDescription>
         <CardAction>
-          {isJev && status.last_latency_ms != null && <Badge variant="outline">{Math.round(status.last_latency_ms)} ms</Badge>}
+          {isJev && !share && status.last_latency_ms != null && <Badge variant="outline">{Math.round(status.last_latency_ms)} ms</Badge>}
         </CardAction>
         <CardTitle className={cn("text-4xl font-bold tracking-tight uppercase", MANEUVER_TEXT[current])}>{current}</CardTitle>
         {snap.decision?.note && <CardDescription>{snap.decision.note}</CardDescription>}
+        {!isJev && status.why && <CardDescription className="italic">"{status.why}"</CardDescription>}
       </CardHeader>
-      {isJev && (
+      {isJev && !share && (
         <CardContent className="hidden flex-col gap-2 md:flex">
           {MANEUVERS.map((m) => (
             <div key={m} className="grid grid-cols-[5.5rem_1fr_2.5rem] items-center gap-3 text-sm">
@@ -197,7 +206,9 @@ function Decision({ snap }: { snap: Snapshot }) {
         </CardContent>
       )}
       <CardFooter className="flex flex-wrap gap-x-4 gap-y-1 border-t text-xs text-muted-foreground">
-        {isJev ? (
+        {share ? (
+          <span>{DRIVER_NAME[snap.planner]} decides; code carries it out</span>
+        ) : snap.planner !== "rules" ? (
           <>
             <span>median {status.p50_latency_ms != null ? `${Math.round(status.p50_latency_ms)} ms` : "-"}</span>
             <span>{status.requests} requests</span>
@@ -240,12 +251,30 @@ function Stats({ snap }: { snap: Snapshot }) {
   )
 }
 
+function FramePanel({ snap }: { snap: Snapshot }) {
+  return (
+    <Card size="sm" className="pointer-events-auto bg-card/75 backdrop-blur-md">
+      <CardHeader>
+        <CardTitle>What the driver sees</CardTitle>
+        <CardDescription>Gemini gets this frame and the radar, and picks the manoeuvre itself. No separate eye.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {snap.camera.frame > 0
+          ? <img src={`/camera/latest.jpg?f=${snap.camera.frame}`} alt="Camera frame sent to Gemini" className="w-full rounded-md" />
+          : <span className="text-xs text-muted-foreground">Waiting for the first frame...</span>}
+      </CardContent>
+    </Card>
+  )
+}
+
 function SceneText({ snap }: { snap: Snapshot }) {
   return (
     <Card size="sm" className="pointer-events-auto min-h-0 flex-1 bg-card/75 backdrop-blur-md">
       <CardHeader>
         <CardTitle>What the driver reads</CardTitle>
-        <CardDescription>The exact request body. No images, no hidden intentions.</CardDescription>
+        <CardDescription>
+          {snap.planner === "gemini_vision" ? "The JSON sent next to the frame: radar only, nothing says what anything is." : "The exact request body. No images, no hidden intentions."}
+        </CardDescription>
       </CardHeader>
       <CardContent className="min-h-0 flex-1">
         <ScrollArea className="h-full max-h-72">
@@ -311,7 +340,7 @@ function Banner({ snap }: { snap: Snapshot }) {
     return (
       <Alert className="pointer-events-auto w-[28rem] max-w-full bg-card/90 backdrop-blur-md">
         <TriangleAlertIcon />
-        <AlertTitle>{snap.planner === "jev" ? "Jev" : snap.planner === "gemini" ? "Gemini" : "Rules"}: stop</AlertTitle>
+        <AlertTitle>{snap.planner === "rules" ? "Rules" : DRIVER_NAME[snap.planner]}: stop</AlertTitle>
         <AlertDescription>{snap.eye === "camera" ? `camera: ${seen}` : seen}</AlertDescription>
       </Alert>
     )
@@ -392,10 +421,10 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey)
   }, [])
   const connected = useMemo(() => !!snap, [snap])
-  const models = snap && snap.planner !== "rules" && snap.models?.jev && snap.models?.gemini
+  const models = snap && (snap.planner === "jev" || snap.planner === "gemini") && snap.models?.jev && snap.models?.gemini
   return (
     <div className="relative h-dvh w-full overflow-hidden bg-background">
-      {snap?.eye === "camera" && <CameraWorker />}
+      {(snap?.eye === "camera" || snap?.planner === "gemini_vision") && <CameraWorker />}
       <div className="absolute inset-0">
         <World3D snap={snap} mode={camera} labels={snap?.eye !== "camera"} />
       </div>
@@ -415,6 +444,7 @@ export default function App() {
           {snap?.eye === "camera" && <CameraPanel snap={snap} compact />}
           {snap && !clean && snap.eye !== "camera" && (
             <div className="hidden min-h-0 w-96 flex-col gap-3 xl:flex">
+              {snap.planner === "gemini_vision" && <FramePanel snap={snap} />}
               <SceneText snap={snap} />
               <Events snap={snap} />
             </div>
@@ -429,7 +459,7 @@ export default function App() {
           <div className="flex flex-wrap items-end justify-between gap-3">
             <div className="flex flex-wrap items-end gap-3">
               <Speed snap={snap} />
-              {models ? <VersusCard snap={snap} share={share} /> : <Decision snap={snap} />}
+              {models ? <VersusCard snap={snap} share={share} /> : <Decision snap={snap} share={share} />}
             </div>
             {!clean && !share && <div className="hidden 2xl:block"><Stats snap={snap} /></div>}
           </div>

@@ -36,7 +36,8 @@ export default function RenderMode() {
         await sleep(30)
         const canvas = wrapper.current.querySelector("canvas")!
         const jpeg = canvas.toDataURL("image/jpeg", 0.88)
-        await fetch("/render/result", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: job.id, jpeg }) })
+        const boxes = (window as unknown as { __projectBoxes?: () => unknown[] }).__projectBoxes?.() ?? []
+        await fetch("/render/result", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: job.id, jpeg, boxes }) })
         setDone((d) => d + 1)
       }
     })()
@@ -47,13 +48,13 @@ export default function RenderMode() {
   const embedded = new URLSearchParams(location.search).has("embed")
   if (embedded)
     return (
-      <div ref={wrapper} style={{ width: 1280, height: 720 }}>
+      <div ref={wrapper} style={{ width: 1280, height: 720, flex: "none" }}>
         <World3D snap={snap} mode="dash" render />
       </div>
     )
   return (
-    <div className="flex h-dvh w-full flex-col items-center justify-center gap-2 bg-background text-sm text-muted-foreground">
-      <div ref={wrapper} style={{ width: 1280, height: 720 }}>
+    <div className="flex min-h-dvh w-full flex-col items-center justify-center gap-2 bg-background text-sm text-muted-foreground">
+      <div ref={wrapper} style={{ width: 1280, height: 720, flex: "none" }}>
         <World3D snap={snap} mode="dash" render />
       </div>
       <span>Render worker: {done} frames. Keep this tab visible while an evaluation runs.</span>

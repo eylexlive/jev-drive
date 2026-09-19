@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import random
 import re
@@ -13,7 +14,8 @@ from ..client import Cache, Client
 from ..planners import QUESTIONS
 from .bridge import RenderBridge
 from .perceive import Camera, PerceptionError
-from .sensors import compose
+from .llm_driver import LLMDriver
+from .sensors import compose, radar_scene
 
 ANSWER_DELAY_S = 0.5
 PERIOD_S = 1.0
@@ -95,6 +97,35 @@ class VisionJev:
         return answer.get("choice") or max(probs, key=probs.get), probs
 
 
+class VisionGemini:
+
+    def __init__(self, driver: LLMDriver, cache: Cache, sees: bool) -> None:
+        self.driver, self.cache, self.sees = driver, cache, sees
+        self.name = "gemini_sees" if sees else "gemini_reads"
+        self.needs_frame = sees
+        self.calls, self.cost_usd = 0, 0.0
+        self.lock = threading.Lock()
+
+    def _ask(self, scene: dict, jpeg: bytes | None):
+        blob = json.dumps({"m": self.driver.model, "sees": self.sees, "s": scene}, sort_keys=True).encode()
+        key = hashlib.sha256(blob + (jpeg or b"")).hexdigest()
+        result = self.cache.get(key)
+        if result is None:
+            choice, _, meta = self.driver.ask(scene, image=jpeg)
+            result = {"choice": choice, **meta}
+            self.cache.put(key, result)
+            with self.lock:
+                self.calls += 1
+                self.cost_usd += meta.get("cost_usd") or 0.0
+        return result["choice"], None
+
+    def decide(self, scene: dict):
+        return self._ask(scene, None)
+
+    def decide_frame(self, jpeg: bytes, scene: dict):
+        return self._ask(scene, jpeg)
+
+
 @dataclass
 class VisionEpisode:
     scene: str
@@ -111,12 +142,12 @@ class VisionEpisode:
 
 
 class Budget:
-    def __init__(self, max_usd: float, camera: Camera, jev: VisionJev | None) -> None:
-        self.max_usd, self.camera, self.jev = max_usd, camera, jev
+    def __init__(self, max_usd: float, *spenders) -> None:
+        self.max_usd, self.spenders = max_usd, [s for s in spenders if s is not None]
 
     @property
     def spent(self) -> float:
-        return self.camera.cost_usd + (self.jev.cost_usd if self.jev else 0.0)
+        return sum(s.cost_usd for s in self.spenders)
 
     @property
     def exhausted(self) -> bool:
@@ -134,9 +165,12 @@ def run_episode(scene, arm, bridge: RenderBridge, camera: Camera) -> VisionEpiso
         if w.t >= next_ask:
             try:
                 jpeg = bridge.render(w.snapshot())
-                seen = camera.describe(jpeg)
-                text = compose(w, seen, rng)
-                choice, probs = arm.decide(text)
+                if getattr(arm, "needs_frame", False):
+                    seen = {"objects": []}
+                    choice, probs = arm.decide_frame(jpeg, radar_scene(w, rng))
+                else:
+                    seen = camera.describe(jpeg)
+                    choice, probs = arm.decide(compose(w, seen, rng))
             except Exception as exc:
                 error = f"{type(exc).__name__}: {exc}"[:200]
                 break

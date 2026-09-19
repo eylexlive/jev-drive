@@ -56,43 +56,61 @@ def perception_first_frame(eps: dict[str, dict]) -> dict[str, float]:
     return {c: miss[c] / total[c] for c in total}
 
 
-def analyse(path: Path, arms=("jev", "keyword", "radar_only")) -> dict:
+PREREGISTERED = ("keyword", "radar_only")
+EXTRA = ("gemini_reads", "gemini_sees")
+
+
+def _summary(eps: list[dict]) -> dict:
+    n = len(eps)
+    return {"episodes": n,
+            "unsafe_rate": sum(e["unsafe"] for e in eps) / n,
+            "crash_rate": sum(e["crashed"] for e in eps) / n,
+            "violation_rate": sum(e["violation"] for e in eps) / n,
+            "floor_rate": sum(e["floor"] > 0 for e in eps) / n,
+            "progress_m": sum(e["progress_m"] for e in eps) / n,
+            "needless_stop_s": sum(e["needless_stop_s"] for e in eps) / n}
+
+
+def _paired(data: dict, a: str, b: str) -> dict:
+    scenes = sorted(set(data[a]) & set(data[b]))
+    better_a = sum(1 for s in scenes if not data[a][s]["unsafe"] and data[b][s]["unsafe"])
+    better_b = sum(1 for s in scenes if data[a][s]["unsafe"] and not data[b][s]["unsafe"])
+    ua = [float(data[a][s]["unsafe"]) for s in scenes]
+    ub = [float(data[b][s]["unsafe"]) for s in scenes]
+    return {"scenes": len(scenes), f"{a}_better": better_a, f"{b}_better": better_b,
+            "mcnemar_p": mcnemar_exact(better_a, better_b),
+            "unsafe_diff_pts": 100 * (sum(ua) - sum(ub)) / len(scenes) if scenes else 0.0,
+            "unsafe_diff_ci_pts": tuple(100 * x for x in bootstrap_diff(ua, ub)) if scenes else (0.0, 0.0),
+            "needless_diff_s": (sum(data[a][s]["needless_stop_s"] for s in scenes)
+                                - sum(data[b][s]["needless_stop_s"] for s in scenes)) / max(len(scenes), 1)}
+
+
+def analyse(path: Path) -> dict:
     data = load(path)
-    scenes = sorted(set.intersection(*(set(data[a]) for a in arms)))
-    report: dict = {"scenes": len(scenes), "arms": {}, "comparisons": {}, "per_category": {}}
-    for a in arms:
-        eps = [data[a][s] for s in scenes]
-        report["arms"][a] = {
-            "unsafe_rate": sum(e["unsafe"] for e in eps) / len(eps),
-            "crash_rate": sum(e["crashed"] for e in eps) / len(eps),
-            "violation_rate": sum(e["violation"] for e in eps) / len(eps),
-            "floor_rate": sum(e["floor"] > 0 for e in eps) / len(eps),
-            "progress_m": sum(e["progress_m"] for e in eps) / len(eps),
-            "needless_stop_s": sum(e["needless_stop_s"] for e in eps) / len(eps),
+    report: dict = {"arms": {a: _summary(list(data[a].values())) for a in data}, "comparisons": {}}
+    if "jev" in data and all(a in data for a in PREREGISTERED):
+        core = ["jev", *PREREGISTERED]
+        scenes = sorted(set.intersection(*(set(data[a]) for a in core)))
+        sub = {a: {s: data[a][s] for s in scenes} for a in core}
+        pre = {base: _paired(sub, "jev", base) for base in PREREGISTERED}
+        needless = {a: _summary(list(sub[a].values()))["needless_stop_s"] for a in core}
+        ok = all(c["unsafe_diff_pts"] <= -5 and c["mcnemar_p"] < 0.05 for c in pre.values()) \
+            and needless["jev"] <= min(needless[a] for a in PREREGISTERED) + 1.0
+        worse = any(c["unsafe_diff_pts"] > 0 and c["mcnemar_p"] < 0.05 for c in pre.values())
+        report["preregistered"] = {
+            "scenes": len(scenes), "comparisons": pre,
+            "per_category": {cat: {a: {"n": len(ids), "unsafe": sum(sub[a][s]["unsafe"] for s in ids) / len(ids)}
+                                   for a in core}
+                             for cat in CATEGORIES if (ids := [s for s in scenes if category(s) == cat])},
+            "perception_miss_first_frame": perception_first_frame(sub["jev"]),
+            "verdict": "adds value" if ok else ("worse" if worse else "no demonstrated value"),
         }
-    for base in arms[1:]:
-        b = sum(1 for s in scenes if not data["jev"][s]["unsafe"] and data[base][s]["unsafe"])
-        c = sum(1 for s in scenes if data["jev"][s]["unsafe"] and not data[base][s]["unsafe"])
-        jev_u = [float(data["jev"][s]["unsafe"]) for s in scenes]
-        base_u = [float(data[base][s]["unsafe"]) for s in scenes]
-        report["comparisons"][base] = {
-            "jev_better": b, "baseline_better": c, "mcnemar_p": mcnemar_exact(b, c),
-            "unsafe_diff_pts": 100 * (sum(jev_u) - sum(base_u)) / len(scenes),
-            "unsafe_diff_ci_pts": tuple(100 * x for x in bootstrap_diff(jev_u, base_u)),
-            "needless_diff_s": report["arms"]["jev"]["needless_stop_s"] - report["arms"][base]["needless_stop_s"],
+    for extra in EXTRA:
+        if extra in data and "jev" in data:
+            report["comparisons"][f"jev_vs_{extra}"] = _paired(data, "jev", extra)
+    if all(a in data for a in EXTRA):
+        report["comparisons"]["separate_eye_vs_one_model"] = {
+            **_paired(data, "gemini_reads", "gemini_sees"),
+            "note": "same model on both sides: gemini_reads decides from the camera text, gemini_sees from the frame",
         }
-    for cat in CATEGORIES:
-        ids = [s for s in scenes if category(s) == cat]
-        if ids:
-            report["per_category"][cat] = {a: {"n": len(ids),
-                                              "unsafe": sum(data[a][s]["unsafe"] for s in ids) / len(ids),
-                                              "progress_m": sum(data[a][s]["progress_m"] for s in ids) / len(ids)}
-                                          for a in arms}
-    report["perception_miss_first_frame"] = perception_first_frame({s: data["jev"][s] for s in scenes})
-    best_base_needless = min(report["arms"][a]["needless_stop_s"] for a in arms[1:])
-    ok = all(report["comparisons"][a]["unsafe_diff_pts"] <= -5 and report["comparisons"][a]["mcnemar_p"] < 0.05
-             for a in arms[1:]) and report["arms"]["jev"]["needless_stop_s"] <= best_base_needless + 1.0
-    worse = any(report["comparisons"][a]["unsafe_diff_pts"] > 0 and report["comparisons"][a]["mcnemar_p"] < 0.05
-                for a in arms[1:])
-    report["verdict"] = "adds value" if ok else ("worse" if worse else "no demonstrated value")
     return report

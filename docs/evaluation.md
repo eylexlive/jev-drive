@@ -38,3 +38,12 @@ Jev "adds value" only if its unsafe rate is at least 5 percentage points lower t
 needless stop time is no more than 1.0 s above the better baseline. Otherwise the result is "no
 demonstrated value" (or "worse", if a baseline is significantly better). Perception failures are reported,
 not excluded.
+
+## Added after pre-registration
+
+Two drivers were added to `jev-drive eval` later and are exploratory; they do not enter the verdict above.
+
+- `gemini_reads`: Gemini deciding from the same camera and radar text as Jev.
+- `gemini_sees`: Gemini deciding from the frame and the radar, with no camera text.
+
+`jev-drive report` compares the two on the same scenes (exact McNemar) to ask whether a separate eye helps when the deciding model is held fixed.

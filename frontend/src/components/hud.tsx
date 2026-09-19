@@ -45,13 +45,25 @@ function Step({ icon: Icon, title, detail, pulse, accent }: { icon: typeof Camer
 
 export function PipelineStrip({ snap, share = false }: { snap: Snapshot; share?: boolean }) {
   const driver = snap.planner
-  const model = snap.models?.[driver as "jev" | "gemini"]
+  const model = snap.models?.[driver as "jev" | "gemini" | "gemini_vision"]
   const cam = snap.camera
   const m: Maneuver = snap.ego.phase ? "overtake" : snap.ego.maneuver
   const camPulse = usePulse(cam.frame)
   const decidePulse = usePulse(model?.decided_at)
   const actPulse = usePulse(m)
-  const camera = snap.eye === "camera"
+  const camera = snap.eye === "camera" || driver === "gemini_vision"
+  if (driver === "gemini_vision")
+    return (
+      <div className="pointer-events-auto flex flex-wrap items-center gap-1.5 rounded-xl bg-card/70 p-1.5 backdrop-blur-md ring-1 ring-foreground/10">
+        <Step icon={CameraIcon} title="Camera" detail={`frame ${cam.frame}`} pulse={camPulse} />
+        <ArrowRightIcon className="text-muted-foreground" />
+        <Step icon={BrainCircuitIcon} title="Gemini sees and decides" pulse={decidePulse}
+          detail={share ? (model?.choice ?? "...").toUpperCase() : model?.last_latency_ms != null ? `${(model.last_latency_ms / 1000).toFixed(1)} s` : "..."} />
+        <ArrowRightIcon className="text-muted-foreground" />
+        <Step icon={CarFrontIcon} title="Car" detail={snap.ego.aeb ? "EMERGENCY BRAKE" : m.toUpperCase()} pulse={actPulse}
+          accent={snap.ego.aeb ? "text-destructive" : MANEUVER_TEXT[m]} />
+      </div>
+    )
   return (
     <div className="pointer-events-auto flex flex-wrap items-center gap-1.5 rounded-xl bg-card/70 p-1.5 backdrop-blur-md ring-1 ring-foreground/10">
       <Step icon={CameraIcon} title="Camera" detail={camera ? `frame ${cam.frame}` : "off (code eye)"} pulse={camera && camPulse} />
@@ -241,7 +253,7 @@ export function BrakeOverlay({ snap }: { snap: Snapshot }) {
   }, [kind])
   if (!shown) return null
   const emergency = shown.kind === "emergency"
-  const who = emergency ? "Safety floor (code) - reacts in milliseconds" : `${snap.planner === "gemini" ? "Gemini" : snap.planner === "jev" ? "Jev" : "Rules"} chose STOP - hard braking`
+  const who = emergency ? "Safety floor (code) - reacts in milliseconds" : `${snap.planner === "jev" ? "Jev" : snap.planner === "rules" ? "Rules" : "Gemini"} chose STOP - hard braking`
   return (
     <div key={shown.id} className="brake-flash pointer-events-none absolute inset-0 flex items-center justify-center">
       <div className={cn("absolute inset-0", emergency ? "brake-vignette-red" : "brake-vignette-amber")} />

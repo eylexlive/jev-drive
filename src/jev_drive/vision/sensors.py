@@ -142,3 +142,10 @@ def compose(world: World, camera: dict, rng: random.Random) -> dict:
         }
     scene["your_answer_takes_effect_in_s"] = ANSWER_DELAY_S
     return scene
+
+
+def radar_scene(world: World, rng: random.Random) -> dict:
+    scene = compose(world, {"objects": []}, rng)
+    scene.pop("camera", None)
+    scene.pop("radar_only", None)
+    return scene

@@ -202,3 +202,11 @@ def save(scenes: list[Scene], path: Path) -> None:
 
 def load(path: Path) -> list[Scene]:
     return pickle.loads(path.read_bytes())
+
+
+STANDARD_SET = {"static_pass": 30, "static_approach": 25, "living_ambiguous": 50, "living_active": 25, "parallel": 10,
+                "empty": 10}
+
+
+def standard_set(seed: int = 7) -> list[Scene]:
+    return [s for s in build(seed=seed) if int(s.id.rsplit("-", 1)[1]) < STANDARD_SET.get(s.category, 0)]

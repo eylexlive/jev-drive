@@ -6,11 +6,19 @@ import re
 import time
 import urllib.error
 import urllib.request
+from base64 import b64encode
 
 from ..planners import CRITERIA, INSTRUCTIONS
 from ..world import MANEUVERS
 
 URL = "https://openrouter.ai/api/v1/chat/completions"
+
+SEEING = (
+    "You also get the car's forward camera frame. The car drives in the right lane; the yellow dashed line in the "
+    "middle separates it from the oncoming lane on the left, and there is a sidewalk on each side. Look at the "
+    "frame yourself to find people, animals, vehicles and objects on or near the road. The radar in the JSON "
+    "measures distances and speeds but does not say what anything is."
+)
 
 
 class LLMDriver:
@@ -21,14 +29,19 @@ class LLMDriver:
         self.model, self.timeout = model, timeout
         self.api_key = os.environ.get("OPENROUTER_API_KEY", "")
 
-    def ask(self, scene: dict) -> tuple[str, dict, dict]:
+    def ask(self, scene: dict, image: bytes | None = None) -> tuple[str, dict, dict]:
         options = "\n".join(f"- {k}: {v}" for k, v in CRITERIA.items())
-        prompt = (f"{INSTRUCTIONS}\n\nOptions:\n{options}\n\nScene (JSON):\n{json.dumps(scene)}\n\n"
+        seeing = f"{SEEING}\n\n" if image else ""
+        prompt = (f"{INSTRUCTIONS}\n\n{seeing}Options:\n{options}\n\nScene (JSON):\n{json.dumps(scene)}\n\n"
                   'Reply with JSON only: {"maneuver": one of ' + json.dumps(list(MANEUVERS)) +
                   ', "why": "at most 12 words"}')
+        content: str | list = prompt
+        if image:
+            content = [{"type": "text", "text": prompt},
+                       {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + b64encode(image).decode()}}]
         body = json.dumps({"model": self.model, "temperature": 0, "response_format": {"type": "json_object"},
                            "reasoning": {"effort": "low"},
-                           "messages": [{"role": "user", "content": prompt}]}).encode()
+                           "messages": [{"role": "user", "content": content}]}).encode()
         started = time.perf_counter()
         for attempt in range(4):
             request = urllib.request.Request(URL, data=body, method="POST", headers={
