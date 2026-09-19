@@ -69,7 +69,12 @@ In camera mode the `ahead` list is replaced by the fused camera and radar report
 
 ## Quick start
 
-You need Python 3.10 or newer and an [OpenRouter](https://openrouter.ai) API key. The built UI ships with the package, so Node is not needed to run it.
+You need Python 3.10 or newer and access to Jev. There are two ways to get it:
+
+- **OpenRouter.** Jev is listed as `typesafe/jev-1.13`. An [OpenRouter](https://openrouter.ai) key also covers Gemini, which the camera eye and the side-by-side comparison use.
+- **TypeSafe directly.** Request access (whitelisting) at [typesafe.ai](https://typesafe.ai), then set `TYPESAFE_API_KEY` and start the server with `--provider typesafe`. The camera eye and the Gemini parts still need an OpenRouter key.
+
+The built UI ships with the package, so Node is not needed to run it.
 
 ```bash
 git clone https://github.com/eylexlive/jev-drive.git
@@ -81,7 +86,16 @@ export OPENROUTER_API_KEY=sk-or-...
 jev-drive serve --open
 ```
 
-This opens http://127.0.0.1:8765 with Jev driving and the code eye. The server checks the key with OpenRouter before it sends anything. Without a key it starts with the rule-based driver, which is free and good for a first look:
+This opens http://127.0.0.1:8765 with Jev driving and the code eye. The server checks the key before it sends anything. With a TypeSafe key:
+
+```bash
+export TYPESAFE_API_KEY=...
+jev-drive serve --provider typesafe --open
+```
+
+Without an OpenRouter key next to it, the Gemini driver, the Gemini comparison and the camera eye stay off; everything else works.
+
+With no key at all, the server starts with the rule-based driver, which is free and good for a first look:
 
 ```bash
 jev-drive serve --planner rules --no-jev --open
@@ -159,9 +173,10 @@ Clone https://github.com/eylexlive/jev-drive and set it up so I can watch the si
 1. Check that python3 is 3.10 or newer. Create a virtualenv in .venv inside the repo and run
    `pip install -e ".[dev]"`.
 2. Run `pytest`. All tests must pass; they are offline and cost nothing.
-3. Ask me for my OpenRouter API key. Do not write it to any file. Pass it only as the
-   OPENROUTER_API_KEY environment variable of the server process.
-4. Start `jev-drive serve --open` in the background and confirm that
+3. Ask me whether I use OpenRouter or a whitelisted TypeSafe key, then ask for the key. Do not write
+   it to any file. Pass it only as OPENROUTER_API_KEY, or as TYPESAFE_API_KEY together with
+   `--provider typesafe`, in the environment of the server process.
+4. Start `jev-drive serve --open` (with the provider flags from step 3) in the background and confirm that
    `curl -s http://127.0.0.1:8765/state` returns JSON whose "t" grows between two calls and whose
    "planner" is "jev". If the server printed "Jev unavailable", show me that line.
 5. Tell me how to switch to the camera eye and how to stop the server.

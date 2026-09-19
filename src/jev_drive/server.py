@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import random
 import shutil
 import subprocess
@@ -51,8 +52,8 @@ class Session:
         self.world = World(seed=seed, safety_floor=safety_floor, **self.world_kwargs)
         self.rules = RulePlanner()
         self.jev = JevPlanner(client) if client else None
-        self.gemini = LLMPlanner(LLMDriver()) if client else None
-        self.planner = planner if (planner == "rules" or self.jev) else "rules"
+        openrouter = bool(os.environ.get("OPENROUTER_API_KEY"))
+        self.gemini = LLMPlanner(LLMDriver()) if client and openrouter else None
         self.sudden_setting: bool | None = None
         self.shadow_enabled = shadow
         self.agreement = {"same": 0, "different": 0}
@@ -68,7 +69,8 @@ class Session:
         self.idle_pause_s = 10.0
         self.eye = "code"
         self.bridge = RenderBridge()
-        self.camera = Camera() if client else None
+        self.camera = Camera() if client and openrouter else None
+        self.planner = planner if planner == "rules" or (planner == "jev" and self.jev) or (planner == "gemini" and self.gemini) else ("jev" if self.jev else "rules")
         self.camera_info: dict = {"frame": 0, "objects": [], "latency_ms": None, "cost_usd": 0.0, "error": None}
         self.last_jpeg: bytes | None = None
         self.radar_rng = random.Random(1)
@@ -86,7 +88,6 @@ class Session:
             threading.Thread(target=self._director_loop, daemon=True).start()
         if self.gemini:
             threading.Thread(target=self._gemini_loop, daemon=True).start()
-
         if self.jev:
             self.jev_thread = threading.Thread(target=self._jev_loop, daemon=True)
             self.jev_thread.start()
@@ -162,6 +163,8 @@ class Session:
         if frame == self.race.get("frame") or self.race.get("busy"):
             return
         other = self.gemini if self.planner == "jev" else self.jev
+        if other is None:
+            return
         started = time.time()
         self.race = {"frame": frame, "started": started, "busy": True, "answers": {}}
 
@@ -317,6 +320,8 @@ class Session:
                 wanted = body.get("planner")
                 if wanted in ("jev", "gemini") and not self.jev:
                     return {"ok": False, "error": "Models are not available: start the server with an API key"}
+                if wanted == "gemini" and not self.gemini:
+                    return {"ok": False, "error": "The Gemini driver needs OPENROUTER_API_KEY"}
                 if wanted in ("jev", "gemini", "rules"):
                     self.planner = wanted
                     self.world.log("planner", f"driver switched to {wanted}")
